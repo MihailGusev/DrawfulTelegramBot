@@ -6,7 +6,7 @@ internal static class RoomIdPool
     private static HashSet<int> unavailableIds = new();
 
     static RoomIdPool() {
-        var nums = Enumerable.Range(100, 1000).ToArray().Shuffle();
+        var nums = Enumerable.Range(100, 900).ToArray().Shuffle();
         availableIds = new Queue<int>(nums);
     }
 

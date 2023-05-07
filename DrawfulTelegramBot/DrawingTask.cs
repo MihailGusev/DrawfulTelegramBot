@@ -1,22 +1,27 @@
-﻿namespace DrawfulTelegramBot;
+﻿using System.Text;
+
+namespace DrawfulTelegramBot;
 
 internal class DrawingTask
 {
+    const string TASK_FILE_PATH = "D:\\tasks.txt";
     private static readonly Queue<string> _tasks;
     public readonly string text;
 
+    public List<DrawingTaskGuessOption> guessOptions = new();
+
     static DrawingTask() {
-        var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tasks.txt");
-        var lines = File.ReadLines(path).Select(l => l.Trim().ToLower()).ToList().Shuffle();
+        var lines = File.ReadLines(TASK_FILE_PATH, Encoding.UTF8).Select(l => l.Trim().ToLower()).ToArray().Shuffle();
         _tasks = new Queue<string>(lines);
     }
-
-    public bool isFinished;
-    public List<DrawingTaskGuessOption> guessOptions = new();
 
     public DrawingTask() {
         text = _tasks.Dequeue();
         _tasks.Enqueue(text);
         guessOptions.Add(new DrawingTaskGuessOption(text, null));
+    }
+
+    public void ShuffleOptions() {
+        guessOptions.Shuffle();
     }
 }

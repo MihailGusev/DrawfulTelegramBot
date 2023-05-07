@@ -5,12 +5,20 @@ namespace DrawfulTelegramBot;
 
 internal class BotState
 {
-    const int FOOLED_SOMEONE = 500;
-    const int CORRECT_GUESS = 500;
-    const int CORRECT_GUESS_AUTHOR = 1000;
+    const long adminId = 1312251262;
 
     readonly Dictionary<long, Player> players = new();
     readonly Dictionary<int, Room> rooms = new();
+
+    public async Task HardReset(ITelegramBotClient botClient, string? errorMessage = null) {
+        players.Clear();
+        rooms.Clear();
+        RoomIdPool.ReleaseAllIds();
+        var message = errorMessage == null
+            ? "Бот сброшен"
+            : $"Возникло исключение: {errorMessage}. Бот сброшен";
+        await botClient.SendTextMessageAsync(adminId, message);
+    }
 
     public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken) {
         if (update.Message is { } message) {
@@ -20,7 +28,6 @@ internal class BotState
             await HandlePollAnswer(botClient, pollAnswer, cancellationToken);
         }
     }
-
 
     async Task HandleMessage(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken) {
         if (string.IsNullOrWhiteSpace(message.Text)) {
@@ -32,27 +39,27 @@ internal class BotState
             return;
         }
 
-        if (message.Text == "/hardreset") {
-            players.Clear();
-            rooms.Clear();
-            await botClient.SendTextMessageAsync(message.Chat.Id, "Бот сброшен к начальным настройкам", cancellationToken: cancellationToken);
+        var messageText = message.Text.ToLower();
+
+        if (messageText == "/hardreset" && user.Id == adminId) {
+            await HardReset(botClient);
             return;
         }
 
         if (!players.TryGetValue(user.Id, out var existingPlayer)) {
-            await HandleNewPlayer(botClient, user, message.Chat, message.Text, cancellationToken);
+            await HandleNewPlayer(botClient, user, message.Chat, messageText, cancellationToken);
             return;
         }
 
         switch (existingPlayer.room.roomState) {
             case RoomState.WaitingForPlayers:
-                await HandleWaitingForPlayersState(botClient, existingPlayer, message.Text, cancellationToken);
+                await HandleWaitingForPlayersState(botClient, existingPlayer, messageText, cancellationToken);
                 break;
             case RoomState.Drawing:
-                await HandleDrawingState(botClient, existingPlayer, message.Text, cancellationToken);
+                await HandleDrawingState(botClient, existingPlayer, messageText, cancellationToken);
                 break;
             case RoomState.Guessing:
-                await HandleGuessingState(botClient, existingPlayer, message.Text, cancellationToken);
+                await HandleGuessingState(botClient, existingPlayer, messageText, cancellationToken);
                 break;
             case RoomState.Voting:
                 await HandleVotingState(botClient, existingPlayer, cancellationToken);
@@ -61,7 +68,7 @@ internal class BotState
                 await HandleShowingResultsState(botClient, existingPlayer, cancellationToken);
                 break;
             case RoomState.Finished:
-                await HandleFinishedState(botClient, existingPlayer, message.Text, cancellationToken);
+                await HandleFinishedState(botClient, existingPlayer, messageText, cancellationToken);
                 break;
         }
     }
@@ -69,7 +76,12 @@ internal class BotState
     async Task HandleNewPlayer(ITelegramBotClient botClient, User user, Chat chat, string messageText, CancellationToken cancellationToken) {
         var username = user.FirstName ?? user.Username;
         if (string.IsNullOrEmpty(username)) {
-            await botClient.SendTextMessageAsync(chat.Id, "Нельзя войти в комнату, не имея имени или ника", cancellationToken: cancellationToken);
+            await botClient.SendTextMessageAsync(chat.Id, "Нельзя пользоваться ботом, не имея имени или ника", cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (messageText.StartsWith("/start")) {
+            await botClient.SendTextMessageAsync(chat.Id, "Введите номер комнаты, к которой хотите присоединиться или создайте новую", cancellationToken: cancellationToken);
             return;
         }
 
@@ -79,25 +91,20 @@ internal class BotState
             return;
         }
 
-        if (messageText.StartsWith("/join")) {
-            await botClient.SendTextMessageAsync(chat.Id, "Введите номер комнаты, к которой хотите присоединиться", cancellationToken: cancellationToken);
-            return;
-        }
-
         if (int.TryParse(messageText, out var existingRoomId) && rooms.TryGetValue(existingRoomId, out var room)) {
             if (room.roomState == RoomState.WaitingForPlayers) {
                 var newPlayer = new Player(user.Id, chat.Id, username, room);
-
-                foreach (var player in room.playerList) {
-                    await botClient.SendTextMessageAsync(player.chatId, $"Игрок {player.username} зашёл в комнату", cancellationToken: cancellationToken);
-                }
+                players.Add(user.Id, newPlayer);
+                await SendBroadcastMessage(botClient, room, $"Игрок {newPlayer.username} зашёл в комнату", cancellationToken);
                 room.playerList.Add(newPlayer);
             }
             else {
                 await botClient.SendTextMessageAsync(chat.Id, "К этой комнате нельзя присоединиться", cancellationToken: cancellationToken);
             }
         }
-        await botClient.SendTextMessageAsync(chat.Id, "Комнаты с таким номером не существует", cancellationToken: cancellationToken);
+        else {
+            await botClient.SendTextMessageAsync(chat.Id, "Комнаты с таким номером не существует", cancellationToken: cancellationToken);
+        }
     }
 
     int CreateRoom(long userId, long chatId, string username) {
@@ -108,7 +115,7 @@ internal class BotState
         players.Add(userId, player);
 
         room.playerList.Add(player);
-        room.host = player;
+        room.owner = player;
 
         return room.id;
     }
@@ -116,43 +123,35 @@ internal class BotState
     async Task HandleWaitingForPlayersState(ITelegramBotClient botClient, Player player, string messageText, CancellationToken cancellationToken) {
         if (messageText == "/startgame") {
             if (player.IsHost) {
-                player.room.MoveToDrawingState();
-                player.room.playerList.Shuffle();
-                foreach (var p in player.room.playerList) {
-                    p.drawingTask = new DrawingTask();
-                    await botClient.SendTextMessageAsync(p.chatId, $"Задание: \"{p.drawingTask.text}\"", cancellationToken: cancellationToken);
-                }
+                var room = player.room;
+                room.MoveToDrawingState();
+                room.AssignTasks();
+                await SendBroadcastMessage(botClient, room, (Player p) => p.drawingTask.text, cancellationToken);
             }
             else {
                 await botClient.SendTextMessageAsync(player.chatId, "Игру может начать только создатель комнаты", cancellationToken: cancellationToken);
             }
         }
         else {
-            await botClient.SendTextMessageAsync(player.chatId, "Ждём игроков. Отправка сообщений ограничена", cancellationToken: cancellationToken);
+            await botClient.SendTextMessageAsync(player.chatId, "Подождите, пока создатель комнаты начнёт игру", cancellationToken: cancellationToken);
         }
     }
 
     async Task HandleDrawingState(ITelegramBotClient botClient, Player player, string messageText, CancellationToken cancellationToken) {
         var room = player.room;
-        if (messageText == "/drawingfinished") {
-            player.drawingTask.isFinished = true;
-            if (room.playerList.All(p => p.drawingTask.isFinished)) {
-                var playerToGuess = room.MoveToGuessingState();
-                foreach (var p in room.playerList) {
-                    var message = p == playerToGuess
-                        ? "Все закончили. Ваш рисунок угадывается первым"
-                        : $"Все закончили. Угадываем, что нарисовал(а) {player.username}";
-                    await botClient.SendTextMessageAsync(player.chatId, message, cancellationToken: cancellationToken);
-                }
-            }
-            else {
-                await botClient.SendTextMessageAsync(player.chatId, "Ждём, пока все дорисуют", cancellationToken: cancellationToken);
-            }
+        if (messageText == "/drawingfinished" && player == room.owner) {
+            room.MoveToGuessingState();
+            var message = $"Все закончили. Угадываем, что нарисовал(а) {room.PlayerToGuess.username}";
+            await SendBroadcastMessage(botClient, room, message, cancellationToken);
+        }
+        else {
+            await botClient.SendTextMessageAsync(player.chatId, "Ждём, пока все дорисуют", cancellationToken: cancellationToken);
         }
     }
 
     async Task HandleGuessingState(ITelegramBotClient botClient, Player player, string messageText, CancellationToken cancellationToken) {
-        var playerToGuess = player.room.PlayerToGuess;
+        var room = player.room;
+        var playerToGuess = room.PlayerToGuess;
 
         if (player == playerToGuess) {
             await botClient.SendTextMessageAsync(player.chatId, "Угадывается ваш рисунок. Ответ вводить не надо", cancellationToken: cancellationToken);
@@ -161,8 +160,9 @@ internal class BotState
 
         messageText = messageText.Trim().ToLower();
         var drawingTask = playerToGuess.drawingTask;
+        var guessOptions = drawingTask.guessOptions;
 
-        foreach (var answer in drawingTask.guessOptions) {
+        foreach (var answer in guessOptions) {
             if (answer.author == player) {
                 await botClient.SendTextMessageAsync(player.chatId, "Вы уже дали ответ", cancellationToken: cancellationToken);
                 return;
@@ -173,25 +173,22 @@ internal class BotState
             }
         }
 
-        var newAnswer = new DrawingTaskGuessOption(messageText, player);
-        drawingTask.guessOptions.Add(newAnswer);
+        guessOptions.Add(new DrawingTaskGuessOption(messageText, player));
 
-        if (drawingTask.guessOptions.Count < player.room.playerList.Count - 1) {
+        if (drawingTask.guessOptions.Count < room.playerList.Count) {
             await botClient.SendTextMessageAsync(player.chatId, "Ждём ответов остальных игроков", cancellationToken: cancellationToken);
             return;
         }
 
         player.room.MoveToVotingState();
-        var options = drawingTask.guessOptions.Select(a => a.text).ToList().Shuffle();
 
-        foreach (var p in player.room.playerList.Where(p => p != playerToGuess)) {
-            var pollMessage = await botClient.SendPollAsync(
-                    chatId: p.chatId,
-                    question: $"Что нарисовал(а) {playerToGuess.username}?",
-                    options: options,
-                    cancellationToken: cancellationToken,
-                    isAnonymous: false);
-        }
+        var question = $"Что нарисовал(а) {playerToGuess.username}?";
+        drawingTask.ShuffleOptions();
+        var options = drawingTask.guessOptions.Select(a => a.text);
+
+        await Task.WhenAll(room.VotingPlayers.Select(p => {
+            return botClient.SendPollAsync(p.chatId, question, drawingTask.guessOptions.Where(o => o.author != p).Select(o => o.text), isAnonymous: false, cancellationToken: cancellationToken);
+        }));
     }
 
     async Task HandleVotingState(ITelegramBotClient botClient, Player player, CancellationToken cancellationToken) {
@@ -203,99 +200,94 @@ internal class BotState
     }
 
     async Task HandleFinishedState(ITelegramBotClient botClient, Player player, string messageText, CancellationToken cancellationToken) {
-        if (messageText == "/startgame") {
-            if (player.IsHost) {
-                player.room.MoveToDrawingState();
-                foreach (var p in player.room.playerList) {
-                    p.drawingTask = new DrawingTask();
-                    await botClient.SendTextMessageAsync(p.chatId, $"Задание: \"{p.drawingTask.text}\"", cancellationToken: cancellationToken);
-                }
-            }
-            else {
-                await botClient.SendTextMessageAsync(player.chatId, "Игру может начать только создатель комнаты", cancellationToken: cancellationToken);
-            }
-        }
-        else {
-            await botClient.SendTextMessageAsync(player.chatId, "Отправка сообщений ограничена", cancellationToken: cancellationToken);
-        }
+        await HandleWaitingForPlayersState(botClient, player, messageText, cancellationToken);
     }
 
     async Task HandlePollAnswer(ITelegramBotClient botClient, PollAnswer pollAnswer, CancellationToken cancellationToken) {
-        var player = players[pollAnswer.User.Id];
+        if (!players.TryGetValue(pollAnswer.User.Id, out var player)) {
+            return;
+        }
+
         var room = player.room;
         if (room.roomState != RoomState.Voting) {
             return;
         }
 
-        var playerToGuess = player.room.PlayerToGuess;
+        var playerToGuess = room.PlayerToGuess;
         var drawingTask = playerToGuess.drawingTask;
 
-        var guessedPlayers = drawingTask.guessOptions.SelectMany(o => o.voted).ToList();
-        if (guessedPlayers.Any(p => p == player)) {
+        var alreadyGuessed = drawingTask.guessOptions.SelectMany(o => o.voted).ToList();
+        if (alreadyGuessed.Any(p => p == player)) {
             await botClient.SendTextMessageAsync(player.chatId, "Менять свой ответ не разрешается", cancellationToken: cancellationToken);
             return;
         }
 
+        // Отправляем только голосования с одним вариантом ответа, поэтому просто берём первый
         var optionId = pollAnswer.OptionIds[0];
         var guessOptions = drawingTask.guessOptions;
+
+        // Нужно сделать поправку на то, что мы не показываем игроку его же вариант ответа
+        var optionIdOfPlayer = drawingTask.guessOptions.FindIndex(o => o.author == player);
+        if (optionIdOfPlayer <= optionId) {
+            optionId++;
+        }
+
+        // Перед отправкой в опрос опции тасуются и больше не меняют своего порядка
         guessOptions[optionId].voted.Add(player);
 
-        if (guessedPlayers.Count < player.room.playerList.Count - 1) {
+        // +1 за только что добавленного игрока и ещё +1 за автора рисунка
+        if (alreadyGuessed.Count + 2 < room.playerList.Count) {
             return;
         }
 
         room.MoveToShowingResultsState();
 
+        // Сначала отобразим неверные ответы
         var correctOption = guessOptions.Find(o => o.IsCorrect);
         guessOptions.Remove(correctOption!);
 
         foreach (var guessOption in guessOptions.Where(o => o.voted.Any()).OrderBy(o => o.voted.Count)) {
             var author = guessOption.author!;
             var fooled = guessOption.voted.Select(v => v.username).ToArray();
-            author.Score += fooled.Length * FOOLED_SOMEONE;
+            author.FooledSomeone(fooled.Length);
 
-            var guessSummary = $"{guessOption.text}. Автор: {author.username}. Обманул: {string.Join(", ", fooled)}";
-            foreach (var p in player.room.playerList) {
-                await botClient.SendTextMessageAsync(player.chatId, guessSummary, cancellationToken: cancellationToken);
-            }
-
-            await Task.Delay(2000, cancellationToken);
+            var guessSummary = $"{guessOption.text}. Автор: {author.username}. Обмануты: {string.Join(", ", fooled)}";
+            await SendBroadcastMessageWithDelay(botClient, room, guessSummary, cancellationToken);
         }
 
         var voters = correctOption!.voted.ToArray();
-        foreach (var voter in voters) {
-            voter.Score += CORRECT_GUESS;
-        }
-        playerToGuess.Score += voters.Length * CORRECT_GUESS_AUTHOR;
+        voters.ForEach(v => v.EnteredCorrectGuess());
+        playerToGuess.WasCorrectlyGuessed(voters.Length);
 
-        var correctGuessSummary = $"{correctOption!.text}. Угадали: {string.Join(", ", voters.Select(v => v.username))}";
+        var correctPlayers = voters.Any() ? $"Угадали: {string.Join(", ", voters.Select(v => v.username))}" : "Никто не угадал :(";
+        var correctGuessSummary = $"{correctOption!.text} {correctPlayers}";
+        await SendBroadcastMessageWithDelay(botClient, room, correctGuessSummary, cancellationToken);
 
-        foreach (var p in player.room.playerList) {
-            await botClient.SendTextMessageAsync(player.chatId, correctGuessSummary, cancellationToken: cancellationToken);
-        }
-
-        await Task.Delay(2000, cancellationToken);
-
-        var scoreSummary = string.Join("\n", player.room.playerList.Select(p => $"{p.username}: {p.Score}"));
-        foreach (var p in room.playerList) {
-            await botClient.SendTextMessageAsync(player.chatId, scoreSummary, cancellationToken: cancellationToken);
-        }
-
-        await Task.Delay(2000, cancellationToken);
+        var scoreSummary = string.Join("\n", room.playerList.Select(p => $"{p.username}: {p.Score}"));
+        await SendBroadcastMessageWithDelay(botClient, room, scoreSummary, cancellationToken);
 
         if (room.HasNextPlayerToGuess) {
-            room.MoveToGuessingState();
+            room.MoveToGuessingState(true);
             playerToGuess = room.PlayerToGuess;
-            foreach (var p in player.room.playerList) {
-                await botClient.SendTextMessageAsync(player.chatId, $"Угадываем, что нарисовал(а) {playerToGuess.username}", cancellationToken: cancellationToken);
-            }
+            await SendBroadcastMessage(botClient, room, $"Угадываем, что нарисовал(а) {playerToGuess.username}", cancellationToken);
         }
         else {
-            var winner = player.room.playerList.OrderByDescending(p => p.Score).First();
-            foreach (var p in player.room.playerList) {
-                await botClient.SendTextMessageAsync(player.chatId, $"Игра закончена. Победил(а) {winner.username}", cancellationToken: cancellationToken);
-            }
+            var winner = room.playerList.OrderByDescending(p => p.Score).First();
+            await SendBroadcastMessage(botClient, room, $"Игра закончена. Победил(а) {winner.username}", cancellationToken);
             room.MoveToFinishedState();
         }
+    }
+
+    async Task SendBroadcastMessage(ITelegramBotClient botClient, Room room, string message, CancellationToken cancellationToken) {
+        await Task.WhenAll(room.playerList.Select(p => botClient.SendTextMessageAsync(p.chatId, message, cancellationToken: cancellationToken)));
+    }
+
+    async Task SendBroadcastMessageWithDelay(ITelegramBotClient botClient, Room room, string message, CancellationToken cancellationToken, int delay = 3000) {
+        await SendBroadcastMessage(botClient, room, message, cancellationToken);
+        await Task.Delay(delay);
+    }
+
+    async Task SendBroadcastMessage(ITelegramBotClient botClient, Room room, Func<Player, string> getMessage, CancellationToken cancellationToken) {
+        await Task.WhenAll(room.playerList.Select(p => botClient.SendTextMessageAsync(p.chatId, getMessage(p), cancellationToken: cancellationToken)));
     }
 }

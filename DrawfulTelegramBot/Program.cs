@@ -7,6 +7,12 @@ const string BotKey = "6241933089:AAFXgehY7TnvPaqhpfLXZrwqmY0wlIq4_04";
 var botClient = new TelegramBotClient(BotKey);
 var botState = new BotState();
 
+AppDomain.CurrentDomain.UnhandledException += async (object _, UnhandledExceptionEventArgs e) => {
+    var errorMessage = e.ExceptionObject.ToString();
+    Console.WriteLine($"Unhandled exception has occured: {errorMessage}");
+    await botState.HardReset(botClient, errorMessage);
+};
+
 using (CancellationTokenSource cts = new()) {
 
     botClient.StartReceiving(
