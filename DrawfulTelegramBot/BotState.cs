@@ -101,6 +101,11 @@ internal class BotState
             return;
         }
 
+        if (!room.CanAddMore) {
+            await botClient.SendTextMessageAsync(chat.Id, "Достигнут лимит игроков для комнаты", cancellationToken: cancellationToken);
+            return;
+        }
+
         var newPlayer = new Player(user.Id, chat.Id, username, room);
         players.Add(user.Id, newPlayer);
         await SendBroadcastMessage(botClient, room, $"Игрок {newPlayer.username} зашёл в комнату", cancellationToken);

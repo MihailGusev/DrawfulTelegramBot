@@ -2,6 +2,7 @@
 
 internal class Room
 {
+    public const int MAX_PLAYER_COUNT = 10;
     public readonly int id;
     public readonly List<Player> playerList = new();
 
@@ -18,6 +19,8 @@ internal class Room
         id = RoomIdPool.GetNewId();
         roomState = RoomState.WaitingForPlayers;
     }
+
+    public bool CanAddMore => playerList.Count < MAX_PLAYER_COUNT;
 
     public void AssignTasks() {
         drawIndex = 0;
