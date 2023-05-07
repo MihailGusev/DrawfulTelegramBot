@@ -3,32 +3,42 @@
 internal class Room
 {
     public readonly int id;
-    private int drawIndex;
-    public List<Player> playerList { get; private set; }
+    public readonly List<Player> playerList = new();
+
     public Player host;
-    public RoomState RoomState { get; private set; }
+    public RoomState roomState;
+
+    private int drawIndex;
+    public Player PlayerToGuess => playerList[drawIndex];
+    public bool HasNextPlayerToGuess => drawIndex < playerList.Count - 1;
 
     public Room() {
-        RoomState = RoomState.WaitingForPlayers;
         id = RoomIdPool.GetNewId();
+        roomState = RoomState.WaitingForPlayers;
     }
 
     public void MoveToDrawingState() {
-        playerList.Shuffle();
-        foreach (var player in playerList) {
-            player.task = new DrawingTask();
-        }
-        RoomState = RoomState.Drawing;
+        roomState = RoomState.Drawing;
     }
 
     public Player MoveToGuessingState() {
-        RoomState = RoomState.Guessing;
+        roomState = RoomState.Guessing;
         return playerList[drawIndex++];
     }
 
-    public IEnumerator<Player> GetNextPlayer() {
-        foreach (var player in playerList) {
-            yield return player;
-        }
+    public void MoveToVotingState() {
+        roomState = RoomState.Voting;
+    }
+
+    public void MoveToShowingResultsState() {
+        roomState = RoomState.ShowingResults;
+    }
+
+    public void MoveToFinishedState() {
+        roomState = RoomState.Finished;
+    }
+
+    public void Close() {
+        RoomIdPool.ReleaseId(id);
     }
 }

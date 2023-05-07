@@ -1,21 +1,20 @@
-﻿using Telegram.Bot.Types;
-
-namespace DrawfulTelegramBot;
+﻿namespace DrawfulTelegramBot;
 
 internal class Player
 {
+    public readonly long userId;
     public readonly long chatId;
     public readonly string username;
     public readonly Room room;
-    public DrawingTask task;
+    public DrawingTask drawingTask;
 
     public bool IsHost => room.host == this;
-    public bool finishedDrawing;
-    public int Score { get; private set; }
+    public int Score { get; set; }
 
-    public Player(Chat chat, Room room) {
-        chatId = chat.Id;
-        username = chat.FirstName ?? chat.Username ?? "Unnamed";
+    public Player(long userId, long chatId, string username, Room room) {
+        this.userId = userId;
+        this.chatId = chatId;
+        this.username = username;
         this.room = room;
     }
 }

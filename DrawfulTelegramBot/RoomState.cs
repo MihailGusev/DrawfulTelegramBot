@@ -6,4 +6,6 @@ internal enum RoomState
     Drawing,
     Guessing,
     Voting,
+    ShowingResults,
+    Finished,
 }

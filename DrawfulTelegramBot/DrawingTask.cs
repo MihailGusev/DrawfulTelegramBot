@@ -3,28 +3,20 @@
 internal class DrawingTask
 {
     private static readonly Queue<string> _tasks;
+    public readonly string text;
 
     static DrawingTask() {
         var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tasks.txt");
-        var lines = File.ReadAllLines(path).Shuffle();
+        var lines = File.ReadLines(path).Select(l => l.Trim().ToLower()).ToList().Shuffle();
         _tasks = new Queue<string>(lines);
     }
 
-    public string text;
-    public List<DrawTaskAnswer> answers = new();
+    public bool isFinished;
+    public List<DrawingTaskGuessOption> guessOptions = new();
+
     public DrawingTask() {
-        text = GetTask();
+        text = _tasks.Dequeue();
+        _tasks.Enqueue(text);
+        guessOptions.Add(new DrawingTaskGuessOption(text, null));
     }
-
-    private static string GetTask() {
-        var task = _tasks.Dequeue();
-        _tasks.Enqueue(task);
-        return task;
-    }
-}
-
-internal class DrawTaskAnswer
-{
-    public string text;
-    public Player player;
 }
