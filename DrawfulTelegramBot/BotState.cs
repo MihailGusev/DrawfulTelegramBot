@@ -91,20 +91,20 @@ internal class BotState
             return;
         }
 
-        if (int.TryParse(messageText, out var existingRoomId) && rooms.TryGetValue(existingRoomId, out var room)) {
-            if (room.roomState == RoomState.WaitingForPlayers) {
-                var newPlayer = new Player(user.Id, chat.Id, username, room);
-                players.Add(user.Id, newPlayer);
-                await SendBroadcastMessage(botClient, room, $"Игрок {newPlayer.username} зашёл в комнату", cancellationToken);
-                room.playerList.Add(newPlayer);
-            }
-            else {
-                await botClient.SendTextMessageAsync(chat.Id, "К этой комнате нельзя присоединиться", cancellationToken: cancellationToken);
-            }
-        }
-        else {
+        if (!int.TryParse(messageText, out var existingRoomId) || !rooms.TryGetValue(existingRoomId, out var room)) {
             await botClient.SendTextMessageAsync(chat.Id, "Комнаты с таким номером не существует", cancellationToken: cancellationToken);
+            return;
         }
+
+        if (room.roomState != RoomState.WaitingForPlayers) {
+            await botClient.SendTextMessageAsync(chat.Id, "К этой комнате нельзя присоединиться", cancellationToken: cancellationToken);
+            return;
+        }
+
+        var newPlayer = new Player(user.Id, chat.Id, username, room);
+        players.Add(user.Id, newPlayer);
+        await SendBroadcastMessage(botClient, room, $"Игрок {newPlayer.username} зашёл в комнату", cancellationToken);
+        room.playerList.Add(newPlayer);
     }
 
     int CreateRoom(long userId, long chatId, string username) {
