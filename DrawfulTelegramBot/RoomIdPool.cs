@@ -1,27 +1,15 @@
-﻿namespace DrawfulTelegramBot
+﻿namespace DrawfulTelegramBot;
+
+internal static class RoomIdPool
 {
-    internal static class RoomIdPool
-    {
-        private const int IdLength = 2;
-        private static readonly HashSet<string> pool = new();
+    private static readonly Queue<int> availableIds = new();
 
-        public static string GetNewId() {
-            var chars = "abcdefghijklmnopqrstuvwxyz";
-            var stringChars = new char[IdLength];
-            var random = new Random();
-
-            string result;
-            do {
-                for (int i = 0; i < stringChars.Length; i++) {
-                    stringChars[i] = chars[random.Next(chars.Length)];
-                }
-                result = new(stringChars);
-            }
-            while (!pool.Add(result));
-
-            return result;
-        }
-
-        public static void DeleteId(string id) => pool.Remove(id);
+    static RoomIdPool() {
+        var nums = Enumerable.Range(100, 1000).ToArray().Shuffle();
+        availableIds = new Queue<int>(nums);
     }
+
+    public static int GetNewId() => availableIds.Dequeue();
+
+    public static void ReleaseId(int id) => availableIds.Enqueue(id);
 }

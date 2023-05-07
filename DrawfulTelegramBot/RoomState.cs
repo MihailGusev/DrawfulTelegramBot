@@ -1,8 +1,9 @@
-﻿namespace DrawfulTelegramBot
-{
-    internal enum RoomState
-    {
-        WaitingForPlayers,
+﻿namespace DrawfulTelegramBot;
 
-    }
+internal enum RoomState
+{
+    WaitingForPlayers,
+    Drawing,
+    Guessing,
+    Voting,
 }
