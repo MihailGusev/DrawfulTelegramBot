@@ -121,20 +121,25 @@ internal class BotState
     }
 
     async Task HandleWaitingForPlayersState(ITelegramBotClient botClient, Player player, string messageText, CancellationToken cancellationToken) {
-        if (messageText == "/startgame") {
-            if (player.IsHost) {
-                var room = player.room;
-                room.MoveToDrawingState();
-                room.AssignTasks();
-                await SendBroadcastMessage(botClient, room, (Player p) => p.drawingTask.text, cancellationToken);
-            }
-            else {
-                await botClient.SendTextMessageAsync(player.chatId, "Игру может начать только создатель комнаты", cancellationToken: cancellationToken);
-            }
-        }
-        else {
+        if (!player.IsHost) {
             await botClient.SendTextMessageAsync(player.chatId, "Подождите, пока создатель комнаты начнёт игру", cancellationToken: cancellationToken);
+            return;
         }
+
+        if (messageText != "/startgame") {
+            await botClient.SendTextMessageAsync(player.chatId, "Никакие действия, кроме старта игры, не доступны", cancellationToken: cancellationToken);
+            return;
+        }
+
+        var room = player.room;
+        if (room.playerList.Count <= 2) {
+            await botClient.SendTextMessageAsync(player.chatId, "В комнате должно быть по крайней мере 3 человека", cancellationToken: cancellationToken);
+            return;
+        }
+
+        room.MoveToDrawingState();
+        room.AssignTasks();
+        await SendBroadcastMessage(botClient, room, (Player p) => p.drawingTask.text, cancellationToken);
     }
 
     async Task HandleDrawingState(ITelegramBotClient botClient, Player player, string messageText, CancellationToken cancellationToken) {
