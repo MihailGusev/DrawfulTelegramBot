@@ -53,11 +53,13 @@ internal class BotState
 
         if (messageText == "/leaveroom") {
             var room = existingPlayer.room;
-            rooms.Remove(room.id);
-            room.playerList.ForEach(p => players.Remove(p.userId));
-            RoomIdPool.ReleaseId(room.id);
-            await SendBroadcastMessage(botClient, room, "Один из игроков покинул комнату. Продолжение невозможно", cancellationToken);
-            return;
+            if (room.state != RoomState.WaitingForPlayers) {
+                rooms.Remove(room.id);
+                room.playerList.ForEach(p => players.Remove(p.userId));
+                RoomIdPool.ReleaseId(room.id);
+                await SendBroadcastMessage(botClient, room, "Один из игроков покинул комнату. Продолжение невозможно", cancellationToken);
+                return;
+            }
         }
 
         switch (existingPlayer.room.state) {
@@ -89,7 +91,7 @@ internal class BotState
             return;
         }
 
-        if (messageText.StartsWith("/start")) {
+        if (messageText == "/start") {
             await botClient.SendTextMessageAsync(chat.Id, "Введите номер комнаты, к которой хотите присоединиться или создайте новую", cancellationToken: cancellationToken);
             return;
         }
@@ -159,7 +161,7 @@ internal class BotState
         var room = player.room;
         if (messageText == "/drawingfinished" && player == room.owner) {
             room.MoveToGuessingState();
-            var message = $"Все закончили. Угадываем, что нарисовал(а) {room.NextDrawingPlayer.username}";
+            var message = $"Все закончили. Угадываем, что нарисовал(а) {room.BeingGuessedPlayer.username}";
             await SendBroadcastMessage(botClient, room, message, cancellationToken);
         }
         else {
@@ -169,7 +171,7 @@ internal class BotState
 
     async Task HandleGuessingState(ITelegramBotClient botClient, Player player, string messageText, CancellationToken cancellationToken) {
         var room = player.room;
-        var playerToGuess = room.NextDrawingPlayer;
+        var playerToGuess = room.BeingGuessedPlayer;
 
         if (player == playerToGuess) {
             await botClient.SendTextMessageAsync(player.chatId, "Угадывается ваш рисунок. Ответ вводить не надо", cancellationToken: cancellationToken);
@@ -231,8 +233,8 @@ internal class BotState
             return;
         }
 
-        var playerToGuess = room.NextDrawingPlayer;
-        var drawingTask = playerToGuess.drawingTask;
+        var nextDrawingPlayer = room.BeingGuessedPlayer;
+        var drawingTask = nextDrawingPlayer.drawingTask;
 
         var alreadyGuessed = drawingTask.guessOptions.SelectMany(o => o.voted).ToList();
         if (alreadyGuessed.Any(p => p == player)) {
@@ -275,19 +277,19 @@ internal class BotState
 
         var voters = correctOption!.voted.ToArray();
         voters.ForEach(v => v.EnteredCorrectGuess());
-        playerToGuess.WasCorrectlyGuessed(voters.Length);
+        nextDrawingPlayer.WasCorrectlyGuessed(voters.Length);
 
         var correctPlayers = voters.Any() ? $"Угадали: {string.Join(", ", voters.Select(v => v.username))}" : "Никто не угадал :(";
-        var correctGuessSummary = $"{correctOption!.text} {correctPlayers}";
+        var correctGuessSummary = $"Правильный ответ: {correctOption!.text}. {correctPlayers}";
         await SendBroadcastMessageWithDelay(botClient, room, correctGuessSummary, cancellationToken);
 
         var scoreSummary = string.Join("\n", room.playerList.OrderByDescending(p => p.Score).Select(p => $"{p.username}: {p.Score}"));
         await SendBroadcastMessageWithDelay(botClient, room, scoreSummary, cancellationToken);
 
-        if (room.HasNextDrawingPlayer) {
+        if (room.HasNextBeingGuessedPlayer) {
             room.MoveToGuessingState(true);
-            playerToGuess = room.NextDrawingPlayer;
-            await SendBroadcastMessage(botClient, room, $"Угадываем, что нарисовал(а) {playerToGuess.username}", cancellationToken);
+            nextDrawingPlayer = room.BeingGuessedPlayer;
+            await SendBroadcastMessage(botClient, room, $"Угадываем, что нарисовал(а) {nextDrawingPlayer.username}", cancellationToken);
             return;
         }
 

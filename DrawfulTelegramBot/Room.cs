@@ -2,7 +2,7 @@
 
 internal class Room
 {
-    public const int MAX_PLAYER_COUNT = 8;
+    private const int MAX_PLAYER_COUNT = 8;
 
     public readonly int id;
     public readonly List<Player> playerList = new();
@@ -11,25 +11,28 @@ internal class Room
     public Player owner;
     public RoomState state;
 
+    // Индекс игрока, рисунок которого сейчас отгадывается
+    private int playerBeingGuessedIndex;
+    public Player BeingGuessedPlayer => playerList[playerBeingGuessedIndex];
+    public bool HasNextBeingGuessedPlayer => playerBeingGuessedIndex < playerList.Count - 1;
+    public IEnumerable<Player> VotingPlayers => playerList.Where(p => p != BeingGuessedPlayer);
+
     public int RoundIndex { get; private set; } = 1;
     public int RoundCount => playerList.Count > 5 ? 1 : 2;
     public bool HasMoreRounds => RoundIndex < RoundCount;
-
-    private int drawingPlayerIndex;
-    public Player NextDrawingPlayer => playerList[drawingPlayerIndex];
-    public bool HasNextDrawingPlayer => drawingPlayerIndex < playerList.Count - 1;
-
-    public IEnumerable<Player> VotingPlayers => playerList.Where(p => p != NextDrawingPlayer);
 
     public Room() {
         id = RoomIdPool.GetNewId();
         state = RoomState.WaitingForPlayers;
     }
 
-
     public void PrepareForNewRound() {
         MoveToDrawingState();
-        AssignTasks();
+
+        playerBeingGuessedIndex = 0;
+        playerList.Shuffle();
+        playerList.ForEach(p => p.drawingTask = new DrawingTask());
+
         if (RoundIndex == RoundCount) {
             RoundIndex = 1;
             playerList.ForEach(p => p.ResetScore());
@@ -39,20 +42,14 @@ internal class Room
         }
     }
 
-    private void AssignTasks() {
-        drawingPlayerIndex = 0;
-        playerList.Shuffle();
-        playerList.ForEach(p => p.drawingTask = new DrawingTask());
-    }
-
-    public void MoveToDrawingState() {
+    private void MoveToDrawingState() {
         state = RoomState.Drawing;
     }
 
     public void MoveToGuessingState(bool moveIndex = false) {
         state = RoomState.Guessing;
         if (moveIndex) {
-            drawingPlayerIndex++;
+            playerBeingGuessedIndex++;
         }
     }
 
