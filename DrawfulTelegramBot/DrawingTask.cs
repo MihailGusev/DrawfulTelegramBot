@@ -6,11 +6,7 @@ internal class DrawingTask
     public readonly List<DrawingTaskGuessOption> guessOptions = new();
 
     public DrawingTask() {
-        var text = DrawingTaskPool.GetTask();
+        text = DrawingTaskPool.GetTask();
         guessOptions.Add(new DrawingTaskGuessOption(text, null));
-    }
-
-    public void ShuffleOptions() {
-        guessOptions.Shuffle();
     }
 }

@@ -26,23 +26,23 @@ internal class Room
         state = RoomState.WaitingForPlayers;
     }
 
-    public void PrepareForNewRound() {
-        MoveToDrawingState();
-
+    public void AssignTasks() {
         playerBeingGuessedIndex = 0;
         playerList.Shuffle();
         playerList.ForEach(p => p.drawingTask = new DrawingTask());
-
-        if (RoundIndex == RoundCount) {
-            RoundIndex = 1;
-            playerList.ForEach(p => p.ResetScore());
-        }
-        else {
-            RoundIndex++;
-        }
     }
 
-    private void MoveToDrawingState() {
+    public void PrepareForNewRound() {
+        AssignTasks();
+        RoundIndex++;
+    }
+
+    public void Reset() {
+        playerList.ForEach(p => p.ResetScore());
+        RoundIndex = 1;
+    }
+
+    public void MoveToDrawingState() {
         state = RoomState.Drawing;
     }
 

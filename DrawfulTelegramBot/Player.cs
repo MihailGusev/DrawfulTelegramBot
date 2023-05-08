@@ -4,11 +4,11 @@ internal class Player
 {
     public readonly long userId;
     public readonly long chatId;
-    public readonly string username;
+    public string username;
     public readonly Room room;
     public DrawingTask drawingTask;
 
-    public bool IsHost => room.owner == this;
+    public bool IsOwner => room.owner == this;
     public int Score { get; private set; }
 
     public Player(long userId, long chatId, string username, Room room) {
