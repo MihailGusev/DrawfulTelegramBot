@@ -151,8 +151,8 @@ internal class BotState
             return;
         }
 
-        var roundCount = room.PrepareForNewGame();
-        await SendBroadcastMessage(botClient, room, (Player p) => $"Раунд 1/{roundCount}\nВаше задание: {p.drawingTask.text}", cancellationToken);
+        room.PrepareForNewRound();
+        await SendBroadcastMessage(botClient, room, (Player p) => $"Раунд 1/{room.RoundCount}\nВаше задание: {p.drawingTask.text}", cancellationToken);
     }
 
     async Task HandleDrawingState(ITelegramBotClient botClient, Player player, string messageText, CancellationToken cancellationToken) {
@@ -288,12 +288,18 @@ internal class BotState
             room.MoveToGuessingState(true);
             playerToGuess = room.NextDrawingPlayer;
             await SendBroadcastMessage(botClient, room, $"Угадываем, что нарисовал(а) {playerToGuess.username}", cancellationToken);
+            return;
         }
-        else {
-            var winner = room.playerList.OrderByDescending(p => p.Score).First();
-            await SendBroadcastMessage(botClient, room, $"Игра закончена. Победил(а) {winner.username} 👑", cancellationToken);
-            room.MoveToFinishedState();
+
+        if (room.HasMoreRounds) {
+            room.PrepareForNewRound();
+            await SendBroadcastMessage(botClient, room, (Player p) => $"Раунд {room.RoundIndex}/{room.RoundCount}\nВаше задание: {p.drawingTask.text}", cancellationToken);
+            return;
         }
+
+        var winner = room.playerList.OrderByDescending(p => p.Score).First();
+        await SendBroadcastMessage(botClient, room, $"Игра закончена. Победил(а) {winner.username} 👑", cancellationToken);
+        room.MoveToFinishedState();
     }
 
     async Task SendBroadcastMessage(ITelegramBotClient botClient, Room room, string message, CancellationToken cancellationToken) {

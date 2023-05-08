@@ -6,21 +6,18 @@ internal class Room
 
     public readonly int id;
     public readonly List<Player> playerList = new();
+    public bool CanAddPlayer => playerList.Count < MAX_PLAYER_COUNT;
 
     public Player owner;
     public RoomState state;
 
-    private int roundIndex = 1;
-    private int roundCount;
+    public int RoundIndex { get; private set; } = 1;
+    public int RoundCount => playerList.Count > 5 ? 1 : 2;
+    public bool HasMoreRounds => RoundIndex < RoundCount;
 
-    private int drawIndex;
-    public Player NextDrawingPlayer => playerList[drawIndex];
-    public bool HasNextDrawingPlayer
-    {
-        get {
-            return drawIndex < playerList.Count - 1;
-        }
-    }
+    private int drawingPlayerIndex;
+    public Player NextDrawingPlayer => playerList[drawingPlayerIndex];
+    public bool HasNextDrawingPlayer => drawingPlayerIndex < playerList.Count - 1;
 
     public IEnumerable<Player> VotingPlayers => playerList.Where(p => p != NextDrawingPlayer);
 
@@ -29,32 +26,23 @@ internal class Room
         state = RoomState.WaitingForPlayers;
     }
 
-    public bool CanAddPlayer => playerList.Count < MAX_PLAYER_COUNT;
 
-    public void Add
-
-    public int PrepareForNewGame() {
-        roundCount = playerList.Count > 5 ? 1 : 2;
-        for (var i = 0; i < playerList.Count; i++) {
-            playerList[i]
-        }
-        PrepareForNewRound();
-        return roundCount;
-    }
-
-    public int PrepareForNewRound() {
-        state = RoomState.Drawing;
-        drawIndex = 0;
-        playerList.Shuffle();
-        playerList.ForEach(p => p.drawingTask = new DrawingTask());
-        if (roundIndex == roundCount) {
-            roundIndex = 1;
+    public void PrepareForNewRound() {
+        MoveToDrawingState();
+        AssignTasks();
+        if (RoundIndex == RoundCount) {
+            RoundIndex = 1;
             playerList.ForEach(p => p.ResetScore());
         }
         else {
-            roundIndex++;
+            RoundIndex++;
         }
-        return roundIndex;
+    }
+
+    private void AssignTasks() {
+        drawingPlayerIndex = 0;
+        playerList.Shuffle();
+        playerList.ForEach(p => p.drawingTask = new DrawingTask());
     }
 
     public void MoveToDrawingState() {
@@ -64,7 +52,7 @@ internal class Room
     public void MoveToGuessingState(bool moveIndex = false) {
         state = RoomState.Guessing;
         if (moveIndex) {
-            drawIndex++;
+            drawingPlayerIndex++;
         }
     }
 
