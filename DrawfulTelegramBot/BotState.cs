@@ -7,12 +7,12 @@ internal class BotState
 {
     const long adminId = 1312251262;
 
-    readonly Dictionary<long, Player> players = new();
     readonly Dictionary<int, Room> rooms = new();
+    readonly Dictionary<long, Player> players = new();
 
     public async Task HardReset(ITelegramBotClient botClient, string? errorMessage = null) {
-        players.Clear();
         rooms.Clear();
+        players.Clear();
         RoomIdPool.ReleaseAllIds();
         var message = errorMessage == null
             ? "Бот сброшен"
@@ -48,6 +48,15 @@ internal class BotState
 
         if (!players.TryGetValue(user.Id, out var existingPlayer)) {
             await HandleNewPlayer(botClient, user, message.Chat, messageText, cancellationToken);
+            return;
+        }
+
+        if (messageText == "/leaveroom") {
+            var room = existingPlayer.room;
+            rooms.Remove(room.id);
+            room.playerList.ForEach(p => players.Remove(p.userId));
+            RoomIdPool.ReleaseId(room.id);
+            await SendBroadcastMessage(botClient, room, "Один из игроков покинул комнату. Продолжение невозможно", cancellationToken);
             return;
         }
 
@@ -101,7 +110,7 @@ internal class BotState
             return;
         }
 
-        if (!room.CanAddMore) {
+        if (!room.CanAddPlayer) {
             await botClient.SendTextMessageAsync(chat.Id, "Достигнут лимит игроков для комнаты", cancellationToken: cancellationToken);
             return;
         }
@@ -138,13 +147,12 @@ internal class BotState
 
         var room = player.room;
         if (room.playerList.Count <= 2) {
-            await botClient.SendTextMessageAsync(player.chatId, "В комнате должно быть по крайней мере 3 человека", cancellationToken: cancellationToken);
+            await botClient.SendTextMessageAsync(player.chatId, "В комнате должно быть как минимум 3 человека", cancellationToken: cancellationToken);
             return;
         }
 
-        room.MoveToDrawingState();
-        room.AssignTasks();
-        await SendBroadcastMessage(botClient, room, (Player p) => p.drawingTask.text, cancellationToken);
+        var roundCount = room.PrepareForNewGame();
+        await SendBroadcastMessage(botClient, room, (Player p) => $"Раунд 1/{roundCount}\nВаше задание: {p.drawingTask.text}", cancellationToken);
     }
 
     async Task HandleDrawingState(ITelegramBotClient botClient, Player player, string messageText, CancellationToken cancellationToken) {
@@ -261,7 +269,7 @@ internal class BotState
             var fooled = guessOption.voted.Select(v => v.username).ToArray();
             author.FooledSomeone(fooled.Length);
 
-            var guessSummary = $"{guessOption.text}. Автор: {author.username}. Обмануты: {string.Join(", ", fooled)}";
+            var guessSummary = $"Догадка: {guessOption.text}. Автор: {author.username}. Обмануты: {string.Join(", ", fooled)}";
             await SendBroadcastMessageWithDelay(botClient, room, guessSummary, cancellationToken);
         }
 
@@ -273,7 +281,7 @@ internal class BotState
         var correctGuessSummary = $"{correctOption!.text} {correctPlayers}";
         await SendBroadcastMessageWithDelay(botClient, room, correctGuessSummary, cancellationToken);
 
-        var scoreSummary = string.Join("\n", room.playerList.Select(p => $"{p.username}: {p.Score}"));
+        var scoreSummary = string.Join("\n", room.playerList.OrderByDescending(p => p.Score).Select(p => $"{p.username}: {p.Score}"));
         await SendBroadcastMessageWithDelay(botClient, room, scoreSummary, cancellationToken);
 
         if (room.HasNextDrawingPlayer) {
@@ -283,7 +291,7 @@ internal class BotState
         }
         else {
             var winner = room.playerList.OrderByDescending(p => p.Score).First();
-            await SendBroadcastMessage(botClient, room, $"Игра закончена. Победил(а) {winner.username}", cancellationToken);
+            await SendBroadcastMessage(botClient, room, $"Игра закончена. Победил(а) {winner.username} 👑", cancellationToken);
             room.MoveToFinishedState();
         }
     }
